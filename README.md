@@ -1,0 +1,1 @@
+ApproGuru analyzes any arbitrary graph and returns the magnitude of the steepest negative trend.
