@@ -1,20 +1,8 @@
-import json
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
 from typing import Type
-
-
-with open("data/MARS_data.json", "r") as file:
-    mars_data = json.load(file)
-
-
-INPUT_SIZE = 2
-HIDDEN_NEURONS = [8, 16, 16, 16, 8]
-TARGET_LOSS = 0.005
-MAX_ITERATIONS = 10000
-MIN_ITERATIONS = 1000
-BUFFER_SIZE = 10
+from globals import *
 
 
 def preprocess_data(raw_ohlcv: dict, features: str = "timestamp", targets: str = "close", epsilon: float = 1e-8) -> list[torch.tensor]:
@@ -57,7 +45,9 @@ def polynomial_features(x: torch.tensor, max_pow: int) -> torch.tensor:
 
 
 class MLP(nn.Module):
-
+    """
+    Casual Multi Layer Preseptron.
+    """
     def __init__(self, ipt_size: int, hidden_ns: list, act_layer: Type[nn.Module] = nn.ELU) -> None:
         super().__init__()
         self.ipt_size = ipt_size
@@ -149,21 +139,3 @@ def find_max_negative_slope(model: MLP, orig_features: torch.tensor, orig_target
     max_negative_slope = min_val / max_val - 1.0
 
     return max_negative_slope  # torch.tensor of a single element
-
-
-X, Y, Xn, Yn = preprocess_data(mars_data, epsilon=0.0)
-
-input_size = INPUT_SIZE
-hidden_neurons = HIDDEN_NEURONS
-
-model = MLP(input_size, hidden_neurons, nn.LeakyReLU)
-Xp = polynomial_features(Xn, input_size)
-
-train_mlp(model, Xp, Yn, verbosity=True)
-
-answer = find_max_negative_slope(model, Xn, Y).item()
-print(answer)
-
-# Useless
-preds = model(Xp)
-grads = get_original_feature_gradients(model, Xn)
