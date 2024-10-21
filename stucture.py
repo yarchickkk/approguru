@@ -1,4 +1,3 @@
-# Imports
 import json
 import torch
 import torch.nn as nn
@@ -6,21 +5,18 @@ import matplotlib.pyplot as plt
 from typing import Type
 
 
-# Data Loading
-with open("data/trump_data.json", "r") as file:
-    trump_data = json.load(file)
-
-with open("data/pepe_data.json", "r") as file:
-    pepe_data = json.load(file)
-
-with open("data/spx_data.json", "r") as file:
-    spx_data = json.load(file)
-
-with open("data/mstr_data.json", "r") as file:
-    mstr_data = json.load(file)
+with open("data/MARS_data.json", "r") as file:
+    mars_data = json.load(file)
 
 
-# Modules
+INPUT_SIZE = 2
+HIDDEN_NEURONS = [8, 16, 16, 16, 8]
+TARGET_LOSS = 0.005
+MAX_ITERATIONS = 10000
+MIN_ITERATIONS = 1000
+BUFFER_SIZE = 10
+
+
 def preprocess_data(raw_ohlcv: dict, features: str = "timestamp", targets: str = "close", epsilon: float = 1e-8) -> list[torch.tensor]:
     """
     This function transforms raw OHLCV data into a format that can be fed into a model. 
@@ -76,77 +72,98 @@ class MLP(nn.Module):
     def forward(self, x_polynomial: torch.tensor) -> torch.tensor:
         return self.layers(x_polynomial)
     
-    def get_original_feature_gradients(self, orig_features: torch.tensor) -> torch.tensor:
-        self.set_gradients_to_none()  # clean gradients
-        orig_features.requires_grad_(True) # include in computation
-
-        Xpol = polynomial_features(orig_features, self.ipt_size)
-        approximations = self(Xpol)
-        approximations_sum = approximations.sum()  # single value to backward from
-
-        approximations_sum.backward()
-        grads_wrt_orig_features = orig_features.grad
-
-        orig_features.grad = None  # clean gradient
-        orig_features.requires_grad_(False)  # exclude from computation
-        self.set_gradients_to_none()  # clean gradients
-
-        return grads_wrt_orig_features
-    
     def set_gradients_to_none(self) -> None:
         for param in self.parameters():
             param.grad = None
 
 
-# Data preprocessing
-X, Y, Xn, Yn = preprocess_data(mstr_data, epsilon=0.0)
+def get_original_feature_gradients(model: MLP, orig_features: torch.tensor) -> torch.tensor:
+    """
+    Backpropagates to the original features through the model and polynomial transformation.
+    Clears model's gradients after exedcution.
+    """
+    X = orig_features
+    model.set_gradients_to_none()  # clean gradients
+    X.requires_grad_(True) # include in computation
+
+    Xpol = polynomial_features(X, model.ipt_size)
+    approximations = model(Xpol)
+    approximations_sum = approximations.sum()  # single value to backward from
+
+    approximations_sum.backward()
+    grads_wrt_orig_features = X.grad
+
+    X.grad = None  # clean gradient
+    X.requires_grad_(False)  # exclude from computation
+    model.set_gradients_to_none()  # clean gradients
+
+    return grads_wrt_orig_features
 
 
-# Hyperparameters and model initialization
-input_size = 2
-hidden_neurons = [16, 32, 16]  # [4, 8, 4]  # [100, 200, 100]
+def train_mlp(model: MLP, Xtr: torch.tensor, Ytr: torch.tensor, verbosity: bool = False) -> None:
+    """
+    Trains the provided model using the given training datasets until 
+    either a target performance metric is achieved 
+    or a specified number of optimization steps are completed.
+    """
+    mse_loss = nn.MSELoss(reduction="mean")
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    
+    loss, target_loss = torch.tensor(float("inf")), TARGET_LOSS
+    iter, max_iters, min_iters = 0, MAX_ITERATIONS, MIN_ITERATIONS
+    
+    while (loss.item() > target_loss and iter < max_iters) or (iter < min_iters):
+        optimizer.zero_grad(set_to_none=True)
+        preds = model(Xtr)
+        loss = mse_loss(preds, Ytr)
+        loss.backward()
+        optimizer.step()
+        iter += 1
+
+    if verbosity is True:
+        print(f"{iter} iterations, {loss} loss")
+
+
+def find_max_negative_slope(model: MLP, orig_features: torch.tensor, orig_targets: torch.tensor) -> torch.tensor:
+    """
+    Identifies the extrema of the model's approximation, detects the steepest negative slope, 
+    and returns it's ratio after applying a buffer search correction.
+    """
+    X, Y = orig_features, orig_targets
+    
+    grads = get_original_feature_gradients(model, X)
+    max_idx = grads.shape[0] - 1  # most index in gradients array
+
+    sign_changes = torch.where(grads[:-1] * grads[1:] <= 0)[0]  # the indicies after which the sign changes in gradients tensor
+    extremums = torch.cat([torch.tensor([0]), sign_changes, torch.tensor([max_idx])])  # add first and last indicies
+
+    ratios = Y[extremums[1:]] / Y[extremums[:-1]] - 1  # get fall ratios on each interval
+    max_fall_idx = ratios.argmin()  # find interval with the most negative fall
+    s, e = extremums[max_fall_idx], extremums[max_fall_idx + 1]  # restore it's boundary indicies
+
+    buff_size = BUFFER_SIZE
+    s = torch.clamp(s - buff_size, min=0)  # include left buffer
+    e = torch.clamp(e + buff_size, max=max_idx + 1)  # include right buffer
+
+    min_val, max_val = torch.aminmax(Y[s:e])
+    max_negative_slope = min_val / max_val - 1.0
+
+    return max_negative_slope  # torch.tensor of a single element
+
+
+X, Y, Xn, Yn = preprocess_data(mars_data, epsilon=0.0)
+
+input_size = INPUT_SIZE
+hidden_neurons = HIDDEN_NEURONS
 
 model = MLP(input_size, hidden_neurons, nn.LeakyReLU)
 Xp = polynomial_features(Xn, input_size)
 
-mse_loss = nn.MSELoss(reduction="mean")
-optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+train_mlp(model, Xp, Yn, verbosity=True)
 
+answer = find_max_negative_slope(model, Xn, Y).item()
+print(answer)
 
-# Training loop
-num_iters = 100
-for i in range(num_iters):
-    optimizer.zero_grad(set_to_none=True)
-    preds = model(Xp)
-    loss = mse_loss(preds, Yn)
-    print(loss)
-    loss.backward()
-    optimizer.step()
-
-
-# Backprop to features
-grads = model.get_original_feature_gradients(Xn)
-
-
-# Getting minimums
-fig, ax = plt.subplots(figsize=(50, 10))
-
-ax.plot(Xn, Yn)
-ax.plot(Xn, preds.detach())
-
-extremums = [0]
-for i, (prev, next) in enumerate(zip(grads, grads[1:])):
-    if prev <= 0 and next > 0:
-        ax.axvline(x=Xn[i], color='green', linestyle='--', linewidth=1)
-        extremums.append(i)
-    elif prev > 0 and next <= 0:
-        ax.axvline(x=Xn[i], color='red', linestyle='--', linewidth=1)
-        extremums.append(i)
-extremums.append(287)
-
-ax.margins(x=0);
-
-
-# Getting max fall
-for i, (prev, next) in enumerate(zip(extremums, extremums[1:])):
-    print(f"{i}: {(Y[next] / Y[prev] - 1).item():+.10f} %")  # AFTER_DEBUG: devision by zero can occur here! 
+# Useless
+preds = model(Xp)
+grads = get_original_feature_gradients(model, Xn)
