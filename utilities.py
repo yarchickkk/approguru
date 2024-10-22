@@ -1,11 +1,12 @@
 import torch
 import torch.nn as nn
-import matplotlib.pyplot as plt
 from typing import Type
+from datetime import datetime
+import plotly.graph_objects as go
 from globals import *
 
 
-def preprocess_data(raw_ohlcv: dict, features: str = "timestamp", targets: str = "close", epsilon: float = 1e-8) -> list[torch.tensor]:
+def preprocess_data(raw_ohlcv: dict, features: str = "timestamp", targets: str = "close") -> list[torch.tensor]:
     """
     This function transforms raw OHLCV data into a format that can be fed into a model. 
 
@@ -27,7 +28,6 @@ def preprocess_data(raw_ohlcv: dict, features: str = "timestamp", targets: str =
 
     for set in out[:2]:
         setn = (set - set.min()) / (set.max() - set.min())  # Xn, Yn
-        setn = setn + (setn == 0).float() * epsilon  # epsilon adjustment
         out.append(setn) 
     
     return [row.view(-1, 1) for row in out]  # [X, Y, Xn, Yn] as (-1, 1) column tensors
@@ -114,14 +114,14 @@ def train_mlp(model: MLP, Xtr: torch.tensor, Ytr: torch.tensor, verbosity: bool 
         print(f"{iter} iterations, {loss} loss")
 
 
-def find_max_negative_slope(model: MLP, orig_features: torch.tensor, orig_targets: torch.tensor, save_visualized_data: bool = False) -> torch.tensor:
+def find_max_negative_slope(model: MLP, norm_features: torch.tensor, orig_targets: torch.tensor, save_visualized_data: bool = False) -> torch.tensor:
     """
     Identifies the extrema of the model's approximation, detects the steepest negative slope, 
     and returns it's ratio after applying a buffer search correction.
     """
-    X, Y = orig_features, orig_targets
+    Xn, Y = norm_features, orig_targets
     
-    grads = get_original_feature_gradients(model, X)
+    grads = get_original_feature_gradients(model, Xn)
     max_idx = grads.shape[0] - 1  # most index in gradients array
 
     sign_changes = torch.where(grads[:-1] * grads[1:] <= 0)[0]  # the indicies after which the sign changes in gradients tensor
@@ -142,9 +142,117 @@ def find_max_negative_slope(model: MLP, orig_features: torch.tensor, orig_target
     max_negative_slope = min_val / max_val - 1.0
 
     if save_visualized_data is True:
-        model.visualized_data = [  # X, Y, extremums, fall_start, fall_end
-            orig_features, orig_targets, 
+        model.visualized_data = [  # Xn, Y, extremums, fall_start, fall_end
+            norm_features, orig_targets, 
             extremums, min_val_idx, max_val_idx 
         ]
 
     return max_negative_slope  # torch.tensor of a single element
+
+
+def timestamps_to_dates(timestamps: torch.tensor):
+    """
+    Convert a tensor of timestamps to a tensor of date strings.
+    """
+    format = "%d-%m-%Y %H:%M:%S"
+    date_strings = [datetime.fromtimestamp(ts.item()).strftime(format) for ts in timestamps]
+    return date_strings
+
+
+def visualize_model(model: MLP, X_original: torch.tensor, Y_normalized: torch.tensor) -> None:
+        # X: torch.tensor, Y: torch.tensor, predictions: torch.tensor,
+        #             extremums: torch.tensor, fall_start: int, fall_end: int) -> None:
+    """
+    
+    """
+    # assert model.visualized_data is not None, "No data was obtained from find_max_negative_slope()"
+    X, Yn = X_original, Y_normalized
+
+    try:
+        model.visualized_data
+    except AttributeError as e:
+        print("'MLP' object has no attribute 'visualized_data'")
+        # sys.exit(1)
+    Xn, Y, extremums, mini, maxi = model.visualized_data  # Unpack data from find_max_negative_slope() 
+    preds = model(polynomial_features(Xn, INPUT_SIZE))  # Forward model
+
+    Xnplot = Xn.view(-1).numpy()
+    Ynplot = Yn.view(-1).numpy()
+    dates = timestamps_to_dates(X.view(-1))
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(  # approximated function
+        x=Xnplot, 
+        y=Ynplot, 
+        mode='lines', 
+        name='Price', 
+        line=dict(width=1, color='#1f77b4'),
+        text=dates, 
+        customdata=Y.view(-1).numpy(),
+        hovertemplate="%{text}<br>%{customdata:.14f}$<extra></extra>"
+        ))
+
+    fig.add_trace(go.Scatter(  # approximation
+        x=Xnplot, 
+        y=preds.detach().view(-1).numpy(), 
+        mode='lines', 
+        name='Approximation',
+        line=dict(width=2, color='#ff7f0e'),
+        hoverinfo='none'
+        ))
+
+    for i in extremums:  # extremums
+        x_value = Xnplot[i]
+        fig.add_shape(
+            type='line',
+            x0=x_value, x1=x_value,
+            y0=min(Ynplot), y1=max(Ynplot),
+            line=dict(color='#2ca02c', width=2, dash="dash"),
+            name="Exteremum",
+            showlegend=(True if i == 0 else False)
+        )
+
+    fig.add_shape(  # fall region
+        type='rect',
+        x0=Xnplot[mini.item()],
+        x1=Xnplot[maxi.item()],
+        y0=min(Ynplot),
+        y1=max(Ynplot),
+        fillcolor='#d62728',
+        opacity=0.25,
+        line_width=0,
+        showlegend=True,
+        name="Fall Region"
+    )
+
+    fig.update_layout(  # display properties
+        margin=dict(l=0, r=0, t=0, b=0),
+        template='simple_white',
+        legend=dict(
+            x=0.02,
+            y=0.98,
+            xanchor="left",
+            yanchor="top",
+        ),
+        yaxis=dict(
+            showgrid=True, 
+            gridcolor="rgba(211, 211, 211, 0.4)",
+            gridwidth=0.05
+        )
+    )
+    fig.show()
+
+
+def magic_function(data: dict, seed: int = 13, log_training: bool = True, visualize_graph: bool = True) -> float:
+    X, Y, Xn, Yn = preprocess_data(data)
+    Xp = polynomial_features(Xn, INPUT_SIZE)
+
+    torch.manual_seed(seed)  # stable weight initialization
+    model = MLP(INPUT_SIZE, HIDDEN_NEURONS, ACTIVATION_FUNCTION)
+    train_mlp(model, Xp, Yn, verbosity=log_training)
+    slope = find_max_negative_slope(model, Xn, Y, save_visualized_data=visualize_graph)
+    
+    if visualize_graph is True:
+        visualize_model(model, X, Yn)
+    return slope.item()
