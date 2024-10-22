@@ -114,7 +114,7 @@ def train_mlp(model: MLP, Xtr: torch.tensor, Ytr: torch.tensor, verbosity: bool 
         print(f"{iter} iterations, {loss} loss")
 
 
-def find_max_negative_slope(model: MLP, orig_features: torch.tensor, orig_targets: torch.tensor) -> torch.tensor:
+def find_max_negative_slope(model: MLP, orig_features: torch.tensor, orig_targets: torch.tensor, save_visualized_data: bool = False) -> torch.tensor:
     """
     Identifies the extrema of the model's approximation, detects the steepest negative slope, 
     and returns it's ratio after applying a buffer search correction.
@@ -134,8 +134,17 @@ def find_max_negative_slope(model: MLP, orig_features: torch.tensor, orig_target
     buff_size = BUFFER_SIZE
     s = torch.clamp(s - buff_size, min=0)  # include left buffer
     e = torch.clamp(e + buff_size, max=max_idx + 1)  # include right buffer
+    
+    min_val, min_val_idx = torch.min(Y[s:e], dim=0)  # min value an it's local index
+    max_val, max_val_idx = torch.max(Y[s:e], dim=0)  # max value an it's local index
+    min_val_idx, max_val_idx = min_val_idx + s, max_val_idx + s  # global indicies
 
-    min_val, max_val = torch.aminmax(Y[s:e])
     max_negative_slope = min_val / max_val - 1.0
+
+    if save_visualized_data is True:
+        model.visualized_data = [  # X, Y, extremums, fall_start, fall_end
+            orig_features, orig_targets, 
+            extremums, min_val_idx, max_val_idx 
+        ]
 
     return max_negative_slope  # torch.tensor of a single element
