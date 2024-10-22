@@ -160,19 +160,12 @@ def timestamps_to_dates(timestamps: torch.tensor):
 
 
 def visualize_model(model: MLP, X_original: torch.tensor, Y_normalized: torch.tensor) -> None:
-        # X: torch.tensor, Y: torch.tensor, predictions: torch.tensor,
-        #             extremums: torch.tensor, fall_start: int, fall_end: int) -> None:
-    """
-    
-    """
-    # assert model.visualized_data is not None, "No data was obtained from find_max_negative_slope()"
     X, Yn = X_original, Y_normalized
-
     try:
         model.visualized_data
     except AttributeError as e:
         print("'MLP' object has no attribute 'visualized_data'")
-        # sys.exit(1)
+
     Xn, Y, extremums, mini, maxi = model.visualized_data  # Unpack data from find_max_negative_slope() 
     preds = model(polynomial_features(Xn, INPUT_SIZE))  # Forward model
 
