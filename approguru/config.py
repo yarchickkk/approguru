@@ -1,19 +1,31 @@
+import os
 import torch
 import torch.nn as nn
 
 
+def select_num_cpu_cores() -> None:
+    num_cpu_threads = os.cpu_count()
+
+    if num_cpu_threads is not None:
+        # torch.set_num_threads(num_cpu_threads)
+        pass
+    else:
+        print(f"Could not determine the number of CPU threads. Using default settings: {torch.get_num_threads()}.")
+
+
 def select_torch_device() -> torch.device:
-    if torch.cuda.is_available():
+    if False:#torch.cuda.is_available():
         device = torch.device("cuda")
-    # optional Apple Silicon GPU support (sucks badly on my device)
-    # elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-    #     device = torch.device("mps")
+    elif False:#hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = torch.device("mps")
     else:
         device = torch.device("cpu")
+        select_num_cpu_cores()
     return device
 
 
 DEVICE = select_torch_device()
+NUM_THREADS = torch.get_num_threads() if DEVICE == torch.device("cpu") else None
 INPUT_SIZE = 2
 HIDDEN_NEURONS = [8, 16, 16, 16, 8]
 ACTIVATION_FUNCTION = nn.LeakyReLU
@@ -21,6 +33,3 @@ TARGET_LOSS = 0.005
 MAX_ITERATIONS = 10000
 MIN_ITERATIONS = 1000
 BUFFER_SIZE = 10
-
-
-__all__ = []  # no imports to top-level

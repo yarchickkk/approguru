@@ -13,6 +13,7 @@ from .config import (
 )
 
 
+@torch.compiler.disable(recursive=True)
 def validate_ohlcv_structure(raw_ohlcv: dict) -> bool:
     """
     This function checks wether input data follows expected formatting.
@@ -43,7 +44,7 @@ def validate_ohlcv_structure(raw_ohlcv: dict) -> bool:
         return False
 
 
-# @torch.compile()
+# @torch.compile
 def preprocess_data(raw_ohlcv: dict, features: str = "timestamp", targets: str = "close") -> list[torch.Tensor]:
     """
     This function transforms raw OHLCV data into a format that can be fed into a model. Applies min-max normalization.
@@ -76,7 +77,7 @@ def preprocess_data(raw_ohlcv: dict, features: str = "timestamp", targets: str =
     return [row.view(-1, 1) for row in out]
 
 
-# @torch.compile()
+# @torch.compile
 def polynomial_features(X_original: torch.Tensor, max_pow: int) -> torch.Tensor:
     """
     This function takes a tensor of shape (-1, 1) and returns a new tensor 
@@ -89,13 +90,12 @@ def polynomial_features(X_original: torch.Tensor, max_pow: int) -> torch.Tensor:
     return torch.pow(x, powers)
 
 
-# @torch.compile()
-def get_original_feature_gradients(model: MLP, X_original: torch.Tensor) -> torch.Tensor:
+# @torch.compile
+def get_feature_gradients(model: MLP, X: torch.Tensor) -> torch.Tensor:
     """
     Backpropagates to the original features through the model and polynomial transformation.
     Clears model's gradients after exedcution.
     """
-    X = X_original
     model.set_gradients_to_none()  # clean gradients
     X.requires_grad_(True) # include in computation
 
@@ -113,7 +113,7 @@ def get_original_feature_gradients(model: MLP, X_original: torch.Tensor) -> torc
     return grads_wrt_orig_features
 
 
-# @torch.compile()
+@torch.compiler.disable(recursive=True)
 def train_mlp(model: MLP, X_polynomial: torch.Tensor, Y_normalized: torch.Tensor) -> list[torch.Tensor]:
     """
     Trains the provided model using the given training datasets until 
@@ -138,16 +138,14 @@ def train_mlp(model: MLP, X_polynomial: torch.Tensor, Y_normalized: torch.Tensor
     return iter, loss
 
 
-# @torch.compile()
-# @torch.no_grad()
-def find_max_negative_slope(model: MLP, X_normalized: torch.Tensor, Y_original: torch.Tensor) -> list[torch.Tensor]:
+@torch.no_grad()
+@torch.compiler.disable(recursive=True)
+def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: torch.Tensor) -> list[torch.Tensor]:
     """
     Identifies the extrema of the model's approximation, detects the steepest negative slope, 
     and returns it's ratio after applying a buffer search correction.
     """
-    Xn, Y = X_normalized, Y_original
-    
-    grads = get_original_feature_gradients(model, Xn)
+    grads, Y = X_normalized_gradients, Y_original
     max_idx = grads.shape[0] - 1  # most index in gradients array
 
     sign_changes = torch.where(grads[:-1] * grads[1:] <= 0)[0]  # the indicies after which the sign changes in gradients tensor
@@ -170,6 +168,7 @@ def find_max_negative_slope(model: MLP, X_normalized: torch.Tensor, Y_original: 
     return max_negative_slope, extremums, min_val_idx, max_val_idx 
 
 
+@torch.compiler.disable(recursive=True)
 def timestamps_to_dates(timestamps: torch.Tensor) -> list[str]:
     """
     Convert a tensor of timestamps to a tensor of date strings.
@@ -178,8 +177,8 @@ def timestamps_to_dates(timestamps: torch.Tensor) -> list[str]:
     date_strings = [datetime.fromtimestamp(ts.item()).strftime(format) for ts in timestamps]
     return date_strings
 
-# @torch.compile()
-# @torch.no_grad()
+
+@torch.compiler.disable(recursive=False)
 def visualize_model(model: MLP, X_original: torch.Tensor, Y_original: torch.Tensor, X_normalized: torch.Tensor, 
                     Y_normalized: torch.Tensor, extremums: torch.Tensor, min_val_idx: torch.Tensor, max_val_idx: torch.Tensor) -> None:
     X, Y, Xn, Yn = X_original, Y_original, X_normalized, Y_normalized

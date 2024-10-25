@@ -24,4 +24,3 @@ class MLP(nn.Module):
     def set_gradients_to_none(self) -> None:
         for param in self.parameters():
             param.grad = None
-
