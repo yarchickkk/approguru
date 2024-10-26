@@ -4,16 +4,12 @@ from datetime import datetime
 import plotly.graph_objects as go
 from .model import MLP
 from .config import (
-    TARGET_LOSS,
-    MAX_ITERATIONS,
-    MIN_ITERATIONS,
-    BUFFER_SIZE,
-    INPUT_SIZE,
-    DEVICE
+    TARGET_LOSS, MAX_ITERATIONS, MIN_ITERATIONS, 
+    BUFFER_SIZE, INPUT_SIZE, DEVICE, RED_BOLD, RESET
 )
 
 
-@torch.compiler.disable(recursive=True)
+# @torch.compiler.disable(recursive=True)
 def validate_ohlcv_structure(raw_ohlcv: dict) -> bool:
     """
     This function checks wether input data follows expected formatting.
@@ -24,8 +20,7 @@ def validate_ohlcv_structure(raw_ohlcv: dict) -> bool:
     Returns:
         (bool): whether raw_ohlcv is valid or not. 
     """
-    red_bold, reset = "\033[1;31m", "\033[0m"
-    message = f"{red_bold}(guru){reset} Skipping graph processing. Seems like input dictionary isn't structured properly.\n"
+    message = f"{RED_BOLD}(guru){RESET} Skipping graph processing. Seems like input dictionary isn't structured properly.\n"
     
     try:
         pool_address = raw_ohlcv["meta"]["base"]["address"]
@@ -113,7 +108,7 @@ def get_feature_gradients(model: MLP, X: torch.Tensor) -> torch.Tensor:
     return grads_wrt_orig_features
 
 
-@torch.compiler.disable(recursive=True)
+# @torch.compiler.disable(recursive=True)
 def train_mlp(model: MLP, X_polynomial: torch.Tensor, Y_normalized: torch.Tensor) -> list[torch.Tensor]:
     """
     Trains the provided model using the given training datasets until 
@@ -135,11 +130,11 @@ def train_mlp(model: MLP, X_polynomial: torch.Tensor, Y_normalized: torch.Tensor
         optimizer.step()
         iter += 1
 
-    return iter, loss
+    return torch.tensor(iter), loss.detach()
 
 
+# @torch.compiler.disable(recursive=True)
 @torch.no_grad()
-@torch.compiler.disable(recursive=True)
 def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: torch.Tensor) -> list[torch.Tensor]:
     """
     Identifies the extrema of the model's approximation, detects the steepest negative slope, 
@@ -152,7 +147,12 @@ def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: to
     extremums = torch.cat([torch.tensor([0], device=DEVICE), sign_changes, torch.tensor([max_idx], device=DEVICE)])  # add first and last indicies
 
     ratios = Y[extremums[1:]] / Y[extremums[:-1]] - 1  # get fall ratios on each interval
-    max_fall_idx = ratios.argmin()  # find interval with the most negative fall
+    sign_check, max_fall_idx = torch.min(ratios, dim=0) # find interval with the most negative fall
+    if sign_check > 0.0:
+        print(f"{RED_BOLD}(guru){RESET} No falls were found. Seems like the graph constantly grows over given interval.\n"
+              " ----> find_max_negative_slope() returned [None, None, None, None].")
+        return None, None, None, None
+
     s, e = extremums[max_fall_idx], extremums[max_fall_idx + 1]  # restore it's boundary indicies
 
     buff_size = BUFFER_SIZE
@@ -163,12 +163,12 @@ def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: to
     max_val, max_val_idx = torch.max(Y[s:e], dim=0)  # max value an it's local index
     min_val_idx, max_val_idx = min_val_idx + s, max_val_idx + s  # global indicies
 
-    max_negative_slope = min_val / max_val - 1.0
+    max_negative_slope = max_val / min_val - 1.0  # min_val / max_val - 1.0  wierd, but I was asked to fo it this way
 
     return max_negative_slope, extremums, min_val_idx, max_val_idx 
 
 
-@torch.compiler.disable(recursive=True)
+# @torch.compiler.disable(recursive=True)
 def timestamps_to_dates(timestamps: torch.Tensor) -> list[str]:
     """
     Convert a tensor of timestamps to a tensor of date strings.
@@ -178,7 +178,7 @@ def timestamps_to_dates(timestamps: torch.Tensor) -> list[str]:
     return date_strings
 
 
-@torch.compiler.disable(recursive=False)
+# @torch.compiler.disable(recursive=False)
 def visualize_model(model: MLP, X_original: torch.Tensor, Y_original: torch.Tensor, X_normalized: torch.Tensor, 
                     Y_normalized: torch.Tensor, extremums: torch.Tensor, min_val_idx: torch.Tensor, max_val_idx: torch.Tensor) -> None:
     X, Y, Xn, Yn = X_original, Y_original, X_normalized, Y_normalized

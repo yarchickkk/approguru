@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 
 
+# turn off hardware selections, since version is aimed on CPU with default threads number
 def select_num_cpu_cores() -> None:
     num_cpu_threads = os.cpu_count()
 
@@ -33,3 +34,5 @@ TARGET_LOSS = 0.005
 MAX_ITERATIONS = 10000
 MIN_ITERATIONS = 1000
 BUFFER_SIZE = 10
+RED_BOLD = "\033[1;31m"
+RESET = "\033[0m"
