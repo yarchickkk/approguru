@@ -2,10 +2,12 @@ import torch
 import torch.nn as nn
 from datetime import datetime
 import plotly.graph_objects as go
+from typing import Callable
 from .model import MLP
 from .config import (
-    TARGET_LOSS, MAX_ITERATIONS, MIN_ITERATIONS, 
-    BUFFER_SIZE, INPUT_SIZE, DEVICE, RED_BOLD, RESET
+    TARGET_LOSS, MAX_ITERATIONS, MIN_ITERATIONS, BUFFER_SIZE, 
+    INPUT_SIZE, DEVICE, RED_BOLD, RESET, FETCHED_DATA_POINTS,
+    INITIAL_SEARCH_REGION
 )
 
 
@@ -24,15 +26,19 @@ def validate_ohlcv_structure(raw_ohlcv: dict) -> bool:
     
     try:
         pool_address = raw_ohlcv["meta"]["base"]["address"]
-    except KeyError:
+    except (KeyError, TypeError):
         print(f"{message} ----> Make sure it has pool address accessed via ['meta']['base']['address'].")
         return False
     
     try:
         ohlcv_list = raw_ohlcv["data"]["attributes"]["ohlcv_list"]
         if isinstance(ohlcv_list, list) and all(isinstance(sublist, list) for sublist in ohlcv_list):
-            if all(len(sublist) == 5 and all(isinstance(elem, (int, float)) for elem in sublist) for sublist in ohlcv_list):
-                raise KeyError
+            if all((len(sublist) == 6 and all(isinstance(elem, (int, float)) for elem in sublist)) for sublist in ohlcv_list):
+                if len(ohlcv_list) == FETCHED_DATA_POINTS:
+                    return True
+                else:
+                    print(f"{message} ----> Make sure OHLCV list length is {FETCHED_DATA_POINTS}, bit not {len(ohlcv_list)}.\n")
+                    return False
     except (KeyError, TypeError):
         print(f"{message} ----> Make sure it has OHLCV list accessed via ['data']['attributes']['ohlcv_list'].\n"
               f" ----> Pool address: '{pool_address}'.")
@@ -69,7 +75,7 @@ def preprocess_data(raw_ohlcv: dict, features: str = "timestamp", targets: str =
         setn = (set - set.min()) / (set.max() - set.min())  # min-max normalization
         out.append(setn) 
     
-    return [row.view(-1, 1) for row in out]
+    return [row.view(-1, 1) for row in out] + [data]
 
 
 # @torch.compile
@@ -134,38 +140,78 @@ def train_mlp(model: MLP, X_polynomial: torch.Tensor, Y_normalized: torch.Tensor
 
 
 # @torch.compiler.disable(recursive=True)
+def adjust_region_start(X_normalized_gradients: torch.Tensor) -> int:
+    """
+    This function checks whether the initial portion of the search region shows a 
+    downward trend (fall) at the start of the graph. If a fall is detected, it expands 
+    the search region to the left to include the entire negative trend.
+    """
+    grads = X_normalized_gradients
+
+    # take default amount of points we're performing search on (right part of grads)
+    start_ptr = FETCHED_DATA_POINTS - INITIAL_SEARCH_REGION 
+    
+    # step left is possible, and both current and previous points have a negative gradient
+    while (start_ptr - 1) >= 0 and grads[start_ptr] <= 0.0 and grads[start_ptr - 1] <= 0.0:
+        start_ptr -= 1
+    return start_ptr
+
+
+# @torch.compiler.disable(recursive=True)
 @torch.no_grad()
-def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: torch.Tensor) -> list[torch.Tensor]:
+def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: torch.Tensor, start_pointer: int) -> list[torch.Tensor]:
     """
     Identifies the extrema of the model's approximation, detects the steepest negative slope, 
     and returns it's ratio after applying a buffer search correction.
     """
-    grads, Y = X_normalized_gradients, Y_original
+
+    # cut unused points on the left
+    grads, Y = X_normalized_gradients[start_pointer:], Y_original[start_pointer:]
     max_idx = grads.shape[0] - 1  # most index in gradients array
 
     sign_changes = torch.where(grads[:-1] * grads[1:] <= 0)[0]  # the indicies after which the sign changes in gradients tensor
     extremums = torch.cat([torch.tensor([0], device=DEVICE), sign_changes, torch.tensor([max_idx], device=DEVICE)])  # add first and last indicies
+    
+    max_negative_slope = torch.tensor(float("-inf"))
+    min_val_idx, max_val_idx = None, None
 
-    ratios = Y[extremums[1:]] / Y[extremums[:-1]] - 1  # get fall ratios on each interval
-    sign_check, max_fall_idx = torch.min(ratios, dim=0) # find interval with the most negative fall
-    if sign_check > 0.0:
+    for s, e in zip(extremums[:-1], extremums[1:]):
+        # exclude intervals of growth
+        if (Y[e] / Y[s] - 1) > 0.0:
+            continue
+
+        s = torch.clamp(s - BUFFER_SIZE, min=0)  # include left buffer
+        e = torch.clamp(e + BUFFER_SIZE, max=max_idx + 1)  # include right buffer
+
+        min_val_i, min_val_idx_i = torch.min(Y[s:e], dim=0)  # min value an it's local index
+        max_val_i, max_val_idx_i = torch.max(Y[s:e], dim=0)  # max value an it's local index
+
+        max_negative_slope_i = max_val_i / min_val_i - 1.0
+
+        if max_negative_slope_i > max_negative_slope:
+            max_negative_slope = max_negative_slope_i
+            max_val_idx = max_val_idx_i + s
+            min_val_idx = min_val_idx_i + s
+
+    if max_negative_slope == torch.tensor(float("inf")):
         print(f"{RED_BOLD}(guru){RESET} No falls were found. Seems like the graph constantly grows over given interval.\n"
               " ----> find_max_negative_slope() returned [None, None, None, None].")
         return None, None, None, None
 
-    s, e = extremums[max_fall_idx], extremums[max_fall_idx + 1]  # restore it's boundary indicies
+    # adjust returned indicies to align with the original tensor
+    return max_negative_slope, extremums + start_pointer, min_val_idx + start_pointer, max_val_idx + start_pointer
 
-    buff_size = BUFFER_SIZE
-    s = torch.clamp(s - buff_size, min=0)  # include left buffer
-    e = torch.clamp(e + buff_size, max=max_idx + 1)  # include right buffer
+
+def get_open_close_bound(ohlcv_list: dict, candle_index: int, func: Callable) -> None:
+    """
+    Get the maximum or minimum of the open and close values from a given candle.
+    """
+    assert func in (max, min), f"{RED_BOLD}(approguru){RESET} 'func' argument must be either 'max' or 'min' function."
+
+    data = ohlcv_list[candle_index].view(-1)
+    oc = [data[1], data[4]] # open and close
     
-    min_val, min_val_idx = torch.min(Y[s:e], dim=0)  # min value an it's local index
-    max_val, max_val_idx = torch.max(Y[s:e], dim=0)  # max value an it's local index
-    min_val_idx, max_val_idx = min_val_idx + s, max_val_idx + s  # global indicies
-
-    max_negative_slope = max_val / min_val - 1.0  # min_val / max_val - 1.0  wierd, but I was asked to fo it this way
-
-    return max_negative_slope, extremums, min_val_idx, max_val_idx 
+    return func(oc)
 
 
 # @torch.compiler.disable(recursive=True)

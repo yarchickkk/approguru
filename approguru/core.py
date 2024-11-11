@@ -8,15 +8,15 @@ from .utils import (
     polynomial_features,
     train_mlp,
     get_feature_gradients,
+    adjust_region_start,
     find_max_negative_slope,
+    get_open_close_bound,
     visualize_model
 )
 from .config import (
     INPUT_SIZE, HIDDEN_NEURONS, ACTIVATION_FUNCTION, 
     DEVICE, RED_BOLD, RESET
 )
-
-
 
 
 class MaxFallFinder(nn.Module):
@@ -29,7 +29,7 @@ class MaxFallFinder(nn.Module):
         if validate_ohlcv_structure(ohlcv_data) is False:  # data validation
             return None
        
-        self.X, self.Y, self.Xnorm, self.Ynorm = preprocess_data(ohlcv_data)  # data preprocessing
+        self.X, self.Y, self.Xnorm, self.Ynorm, self.data = preprocess_data(ohlcv_data)  # data preprocessing
         self.Xpoly = polynomial_features(self.Xnorm, INPUT_SIZE)
 
         torch.manual_seed(self.seed)  # model initialization
@@ -49,10 +49,20 @@ class MaxFallFinder(nn.Module):
 
         self.Xnorm_gradients = get_feature_gradients(self.mlp, self.Xnorm)
 
+        # push the search region left border if necessary
+        self.start_ptr = adjust_region_start(self.Xnorm_gradients)
+
         self.max_fall, self.extremums, self.min_val_idx, self.max_val_idx = find_max_negative_slope(
             self.Xnorm_gradients,
-            Y_original=self.Y
+            Y_original=self.Y,
+            start_pointer=self.start_ptr
         )
+        
+        # take most and least of open and close values at the borders
+        min_val = get_open_close_bound(self.data, self.min_val_idx, min)
+        max_val = get_open_close_bound(self.data, self.max_val_idx, max)
+        self.max_fall = max_val / min_val - 1.0
+
     
     def _process(self, ohlcv_data: dict) -> None:
         self(ohlcv_data)  # get all the attributes
@@ -70,7 +80,6 @@ class MaxFallFinder(nn.Module):
         else:
             visualize_model(self.mlp, self.X, self.Y, self.Xnorm, self.Ynorm, 
                             self.extremums, self.min_val_idx, self.max_val_idx)
-
 
 
 # outdated
