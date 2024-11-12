@@ -17,7 +17,7 @@ import approguru as guru
 #   one more minor step to better accuracy.
 
 # same ohlcv as always
-with open("data/GROGGO_data.json", "r") as file:
+with open("data/HOUR_data.json", "r") as file:
     data = json.load(file)
 
 

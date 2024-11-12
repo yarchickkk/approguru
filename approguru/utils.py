@@ -169,9 +169,34 @@ def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: to
     grads, Y = X_normalized_gradients[start_pointer:], Y_original[start_pointer:]
     max_idx = grads.shape[0] - 1  # most index in gradients array
 
-    sign_changes = torch.where(grads[:-1] * grads[1:] <= 0)[0]  # the indicies after which the sign changes in gradients tensor
-    extremums = torch.cat([torch.tensor([0], device=DEVICE), sign_changes, torch.tensor([max_idx], device=DEVICE)])  # add first and last indicies
+    sign_changes1 = torch.where(grads[:-1] * grads[1:] <= 0)[0]  # the indicies after which the sign changes in gradients tensor
     
+    # more accurate way to point at extremums
+    sign_changes = []
+    for i in range(1, grads.shape[0]):
+        l, r = i - 1, i
+        l_grad, r_grad = grads[l], grads[r]
+        l_val, r_val = Y[l], Y[r]
+        
+        if l_grad * r_grad <= 0:  # detect a sign change
+
+            if l_grad <= 0 and r_grad > 0: # minimum
+                change = l if l_val <= r_val else r
+
+            elif l_grad > 0 and r_grad <= 0: # maximum
+                change = l if l_val > r_val else r
+            
+            sign_changes.append(change)
+
+    extremums = list(sign_changes)
+    if sign_changes[0] != 0:  # mark starting index as extremum if it's not already
+        extremums = [0] + extremums
+    
+    elif sign_changes[-1] != torch.tensor(max_idx):  # same for last index
+        extremums = extremums + [max_idx]
+    extremums = torch.tensor(extremums)
+    # extremums = torch.cat([torch.tensor([0], device=DEVICE), sign_changes, torch.tensor([max_idx], device=DEVICE)])  # add first and last indicies
+
     max_negative_slope = torch.tensor(float("-inf"))
     min_val_idx, max_val_idx = None, None
 
@@ -180,11 +205,11 @@ def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: to
         if (Y[e] / Y[s] - 1) > 0.0:
             continue
 
-        s = torch.clamp(s - BUFFER_SIZE, min=0)  # include left buffer
-        e = torch.clamp(e + BUFFER_SIZE, max=max_idx + 1)  # include right buffer
+        s = torch.clamp(s - 0, min=0)  # include left buffer
+        e = torch.clamp(e + 0, max=max_idx + 1)  # include right buffer
 
-        min_val_i, min_val_idx_i = torch.min(Y[s:e], dim=0)  # min value an it's local index
-        max_val_i, max_val_idx_i = torch.max(Y[s:e], dim=0)  # max value an it's local index
+        min_val_i, min_val_idx_i = torch.min(Y[s:e+1], dim=0)  # min value an it's local index
+        max_val_i, max_val_idx_i = torch.max(Y[s:e+1], dim=0)  # max value an it's local index
 
         max_negative_slope_i = max_val_i / min_val_i - 1.0
 
@@ -209,7 +234,7 @@ def get_open_close_bound(ohlcv_list: dict, candle_index: int, func: Callable) ->
     assert func in (max, min), f"{RED_BOLD}(approguru){RESET} 'func' argument must be either 'max' or 'min' function."
 
     data = ohlcv_list[candle_index].view(-1)
-    oc = [data[1], data[4]] # open and close
+    oc = [data[1], data[2]] # open and close  ATTENTION: USING HIGH AS TARGETS!!!
     
     return func(oc)
 

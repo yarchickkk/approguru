@@ -29,7 +29,7 @@ class MaxFallFinder(nn.Module):
         if validate_ohlcv_structure(ohlcv_data) is False:  # data validation
             return None
        
-        self.X, self.Y, self.Xnorm, self.Ynorm, self.data = preprocess_data(ohlcv_data)  # data preprocessing
+        self.X, self.Y, self.Xnorm, self.Ynorm, self.data = preprocess_data(ohlcv_data, targets="high")  # data preprocessing
         self.Xpoly = polynomial_features(self.Xnorm, INPUT_SIZE)
 
         torch.manual_seed(self.seed)  # model initialization
