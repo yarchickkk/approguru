@@ -12,7 +12,7 @@ class Parameters():
 
 
 def get_ohlcvs_coingecko(p: Parameters, title: str) -> None:
-    url = f"https://api.geckoterminal.com/api/v2/networks/eth/pools/{p.pool_address}/ohlcv/{p.timeframe}?aggregate={p.aggregate}&limit={p.limit}&currency=usd&token=base"
+    url = f"https://api.geckoterminal.com/api/v2/networks/eth/pools/{p.pool_address}/ohlcv/{p.timeframe}?aggregate={p.aggregate}&before_timestamp=1731533108&limit={p.limit}&currency=usd&token=base"
     headers = {"accept": "application/json"}
     try:
         response = requests.get(url, headers=headers)
@@ -29,7 +29,7 @@ def get_ohlcvs_coingecko(p: Parameters, title: str) -> None:
 
 if __name__ == "__main__":
     
-    parameters = Parameters(pool_address="0x43de4318b6eb91a7cf37975dbb574396a7b5b5c6")
+    parameters = Parameters(pool_address="0x9b9d97a9215882f4a68b0d0d591d5aaeb29e5e47")
     get_ohlcvs_coingecko(parameters, title='HOUR')
 
 # POOL: 0xcbe856765eeec3fdc505ddebf9dc612da995e593

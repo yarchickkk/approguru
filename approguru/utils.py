@@ -113,6 +113,31 @@ def get_feature_gradients(model: MLP, X: torch.Tensor) -> torch.Tensor:
 
     return grads_wrt_orig_features
 
+# @torch.compile
+def get_feature_gradients_v2(model: MLP, X_normalized: torch.Tensor) -> torch.Tensor:
+    
+    # input transformation
+    Xn = X_normalized
+    Xp = polynomial_features(Xn, model.ipt_size)
+    # model output
+    Yn = model(Xp)
+
+    grads = []
+    for i in range(1, Xn.shape[0]):
+        l, r = Yn[i - 1], Yn[i]
+
+        if r > l:
+            grads.append(1.0)
+        else:
+            grads.append(-1.0)
+    
+    if Yn[-1] > Yn[-2]:
+        grads.append(1.0)
+    else:
+        grads.append(-1.0)
+    
+    grads = torch.tensor(grads).view(-1, 1)
+    return grads
 
 # @torch.compiler.disable(recursive=True)
 def train_mlp(model: MLP, X_polynomial: torch.Tensor, Y_normalized: torch.Tensor) -> list[torch.Tensor]:
@@ -192,7 +217,7 @@ def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: to
     if sign_changes[0] != 0:  # mark starting index as extremum if it's not already
         extremums = [0] + extremums
     
-    elif sign_changes[-1] != torch.tensor(max_idx):  # same for last index
+    if sign_changes[-1] != torch.tensor(max_idx):  # same for last index
         extremums = extremums + [max_idx]
     extremums = torch.tensor(extremums)
     # extremums = torch.cat([torch.tensor([0], device=DEVICE), sign_changes, torch.tensor([max_idx], device=DEVICE)])  # add first and last indicies

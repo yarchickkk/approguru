@@ -1,3 +1,5 @@
+import random
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.multiprocessing as mp
@@ -8,6 +10,7 @@ from .utils import (
     polynomial_features,
     train_mlp,
     get_feature_gradients,
+    get_feature_gradients_v2,
     adjust_region_start,
     find_max_negative_slope,
     get_open_close_bound,
@@ -15,7 +18,7 @@ from .utils import (
 )
 from .config import (
     INPUT_SIZE, HIDDEN_NEURONS, ACTIVATION_FUNCTION, 
-    DEVICE, RED_BOLD, RESET
+    DEVICE, RED_BOLD, RESET, SEED
 )
 
 
@@ -32,7 +35,10 @@ class MaxFallFinder(nn.Module):
         self.X, self.Y, self.Xnorm, self.Ynorm, self.data = preprocess_data(ohlcv_data, targets="high")  # data preprocessing
         self.Xpoly = polynomial_features(self.Xnorm, INPUT_SIZE)
 
-        torch.manual_seed(self.seed)  # model initialization
+        random.seed(SEED)
+        torch.manual_seed(SEED)  # model initialization
+        np.random.seed(SEED)
+
         self.mlp = MLP(
             ipt_size=INPUT_SIZE,
             hidden_ns=HIDDEN_NEURONS,
@@ -47,7 +53,7 @@ class MaxFallFinder(nn.Module):
             Y_normalized=self.Ynorm
         )
 
-        self.Xnorm_gradients = get_feature_gradients(self.mlp, self.Xnorm)
+        self.Xnorm_gradients = get_feature_gradients_v2(self.mlp, self.Xnorm)
 
         # push the search region left border if necessary
         self.start_ptr = adjust_region_start(self.Xnorm_gradients)
@@ -83,6 +89,7 @@ class MaxFallFinder(nn.Module):
 
 
 # outdated
+
 def magic_function(data: dict, seed: int = 13, log_training: bool = True, visualize_graph: bool = True) -> float:
     if validate_ohlcv_structure(data) is False:
         return None

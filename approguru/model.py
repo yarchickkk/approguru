@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
 from typing import Type
+import random
+import numpy as np
+from .config import SEED
 
 
 class MLP(nn.Module):
@@ -10,6 +13,10 @@ class MLP(nn.Module):
     def __init__(self, ipt_size: int, hidden_ns: list, act_layer: Type[nn.Module] = nn.LeakyReLU) -> None:
         super().__init__()
         self.ipt_size = ipt_size
+        
+        random.seed(SEED)
+        torch.manual_seed(SEED)  # model initialization
+        np.random.seed(SEED)
 
         layers = [nn.Linear(self.ipt_size, hidden_ns[0]), act_layer()]  # input layer + relu
         for n0, n1 in zip(hidden_ns[:-1], hidden_ns[1:]):  # hidden layers + relus

@@ -38,3 +38,4 @@ RED_BOLD = "\033[1;31m"
 RESET = "\033[0m"
 FETCHED_DATA_POINTS = 150  # candels requested from geckoterminal API
 INITIAL_SEARCH_REGION = 100  # candels considered for search by deafault (can be extended during execution)
+SEED = 123456

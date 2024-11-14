@@ -3,18 +3,13 @@ import approguru as guru
 
 
 # Release Notes:
-#   - Nothing about user interface has changed (yay!)
+#   - Added manual seed setting before every call of something random-related
 
-#   - In case Guru receives the graph decreasing in the beginning it won't crop it as before but adjust the search area to consider
-#   the whole trend. Therefore, more computation is done underhood allowing guru freely moving the starting pointer within some range.
-#   This range is controlled by (FETCHED_DATA_POINTS - INITIAL_SEARCH_REGION) difference you can play with in config.
-#   Important note! Guru aborts execution after FETCHED_DATA_POINTS == len(your_input_ohlcv_list) condition is not met.
-
-#   - Buffer search is now applied to every negative trend Guru stumbles upon before It picks the most one. Thus, the risk of skipping
-#   correct answer after bulding a valid approximation is gone.
-
-#   - After finding fall boundary Guru picks most and least values among open/close values on the left and right accordingly, taking
-#   one more minor step to better accuracy.
+#   - Added and now using get_feature_gradients_v2(), which sets feature gradients by 
+#   looking at value of the next approximation point we're interested in. If it's greater
+#   then the gradient is positive, in opposite scenario it's negative.
+#   Previously guru looked at what torch was saying in this exact point and could sometimes
+#   skip whole trends if he was unlucky enough.
 
 # same ohlcv as always
 with open("data/HOUR_data.json", "r") as file:
@@ -22,9 +17,10 @@ with open("data/HOUR_data.json", "r") as file:
 
 
 # create object, then simply pass ohlcv to it
-finder = guru.MaxFallFinder(seed=245346)  # seed is purely optional, Guru stiks to 13 by default
+finder = guru.MaxFallFinder()
 finder(data)
 
+print("RESULT:", round(float(finder.max_fall)) * 100)
 
 # MaxFallFinder() main attributes:
 #   - max_fall (torch.Tensor)     : most fall detected (in %)
@@ -45,3 +41,33 @@ print(f"Loss: {finder.achieved_loss.item():.10f} | Iters: {finder.steps_made.ite
 
 # opens up a nice picture in browser
 finder.visualize_fall()
+
+# print(f"fall begins: {finder.max_val_idx.item()}, price: {finder.Y[finder.max_val_idx].item()}")
+# print(f"fall ends  : {finder.min_val_idx.item()}, price: {finder.Y[finder.min_val_idx].item()}")
+# print(f"fall: {((finder.Y[finder.max_val_idx] / finder.Y[finder.min_val_idx] - 1.0) * 100).item()} %")
+# print(finder.extremums)
+# 1731533108
+
+"""Xnorm = torch.linspace(0, 1, 1000).view(-1, 1)
+Xpoly = polynomial_features(Xnorm, INPUT_SIZE)
+
+model = finder.mlp
+Ynorm = model(Xpoly)
+
+Xnplot = Xnorm.detach().view(-1).numpy()
+Ynplot = Ynorm.detach().view(-1).numpy()
+
+fig = go.Figure()
+
+fig.add_trace(go.Scatter(
+    x=Xnplot, 
+    y=Ynplot,
+    line=dict(color='orange')
+))
+
+fig.add_trace(go.Scatter(
+    x=finder.Xnorm.detach().view(-1).numpy(),
+    y=finder.Ynorm.detach().view(-1).numpy(),
+    line=dict(color='blue')
+))
+fig.show()"""
