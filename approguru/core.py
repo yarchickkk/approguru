@@ -18,7 +18,7 @@ from .utils import (
 )
 from .config import (
     INPUT_SIZE, HIDDEN_NEURONS, ACTIVATION_FUNCTION, 
-    DEVICE, RED_BOLD, RESET, SEED
+    DEVICE, RED_BOLD, RESET, SEED, TARGETS
 )
 
 
@@ -32,7 +32,7 @@ class MaxFallFinder(nn.Module):
         if validate_ohlcv_structure(ohlcv_data) is False:  # data validation
             return None
        
-        self.X, self.Y, self.Xnorm, self.Ynorm, self.data = preprocess_data(ohlcv_data, targets="high")  # data preprocessing
+        self.X, self.Y, self.Xnorm, self.Ynorm, self.data = preprocess_data(ohlcv_data, targets=TARGETS)  # data preprocessing
         self.Xpoly = polynomial_features(self.Xnorm, INPUT_SIZE)
 
         random.seed(SEED)
@@ -61,13 +61,14 @@ class MaxFallFinder(nn.Module):
         self.max_fall, self.extremums, self.min_val_idx, self.max_val_idx = find_max_negative_slope(
             self.Xnorm_gradients,
             Y_original=self.Y,
-            start_pointer=self.start_ptr
+            start_pointer=self.start_ptr,
+            ohlcv_list=self.data
         )
         
         # take most and least of open and close values at the borders
-        min_val = get_open_close_bound(self.data, self.min_val_idx, min)
-        max_val = get_open_close_bound(self.data, self.max_val_idx, max)
-        self.max_fall = max_val / min_val - 1.0
+        # min_val = get_open_close_bound(self.data, self.min_val_idx, min)
+        # max_val = get_open_close_bound(self.data, self.max_val_idx, max)
+        # self.max_fall = max_val / min_val - 1.0
 
     
     def _process(self, ohlcv_data: dict) -> None:

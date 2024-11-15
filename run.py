@@ -1,26 +1,43 @@
 import json
 import approguru as guru
+from get_data import pools
+import torch
 
 
-# Release Notes:
-#   - Added manual seed setting before every call of something random-related
+# Load data in a list
+ohlcv_data = []
+for idx, pool in enumerate(pools):
+    with open(f"data/{str(idx)}_data.json", "r") as file:
+        data = json.load(file)
+    ohlcv_data.append(data)
 
-#   - Added and now using get_feature_gradients_v2(), which sets feature gradients by 
-#   looking at value of the next approximation point we're interested in. If it's greater
-#   then the gradient is positive, in opposite scenario it's negative.
-#   Previously guru looked at what torch was saying in this exact point and could sometimes
-#   skip whole trends if he was unlucky enough.
 
-# same ohlcv as always
-with open("data/HOUR_data.json", "r") as file:
+# Process data one-by-one
+for idx, data in enumerate(ohlcv_data):
+    break
+    if idx != 10:
+        continue
+
+    finder = guru.MaxFallFinder()
+    finder(data)
+    # logging
+    print(f"Graph {idx}:")
+    print(f"Max fall: {finder.max_fall.item()}, length: {(finder.min_val_idx - finder.max_val_idx).item()}, ({finder.max_val_idx.item()}, {finder.min_val_idx.item()})")
+    print(f"Loss: {finder.achieved_loss.item():.10f} | Iters: {finder.steps_made.item()}")
+    print("-"*30)
+    finder.visualize_fall()
+
+
+with open("data/test_data.json", "r") as file:
     data = json.load(file)
-
-
-# create object, then simply pass ohlcv to it
 finder = guru.MaxFallFinder()
 finder(data)
+print(f"Max fall: {finder.max_fall.item()}, length: {(finder.min_val_idx - finder.max_val_idx).item()}, ({finder.max_val_idx.item()}, {finder.min_val_idx.item()})")
+print(f"Loss: {finder.achieved_loss.item():.10f} | Iters: {finder.steps_made.item()}")
+finder.visualize_fall()
 
-print("RESULT:", round(float(finder.max_fall)) * 100)
+    # b, _ = torch.min(finder.data[finder.min_val_idx][1, 2, 3, 4])
+    # print(f"Values:\nMin: {b.item()}]nMax: {a.item()}")
 
 # MaxFallFinder() main attributes:
 #   - max_fall (torch.Tensor)     : most fall detected (in %)
@@ -35,18 +52,12 @@ print("RESULT:", round(float(finder.max_fall)) * 100)
 #   - finder.max_fall.item(): 0.2739475 (python float)
 
 
-# example of debugging:
-print(f"Max fall: {finder.max_fall.item()}, length: {finder.min_val_idx - finder.max_val_idx}")
-print(f"Loss: {finder.achieved_loss.item():.10f} | Iters: {finder.steps_made.item()}")
 
-# opens up a nice picture in browser
-finder.visualize_fall()
-
-# print(f"fall begins: {finder.max_val_idx.item()}, price: {finder.Y[finder.max_val_idx].item()}")
-# print(f"fall ends  : {finder.min_val_idx.item()}, price: {finder.Y[finder.min_val_idx].item()}")
-# print(f"fall: {((finder.Y[finder.max_val_idx] / finder.Y[finder.min_val_idx] - 1.0) * 100).item()} %")
-# print(finder.extremums)
-# 1731533108
+# # print(f"fall begins: {finder.max_val_idx.item()}, price: {finder.Y[finder.max_val_idx].item()}")
+# # print(f"fall ends  : {finder.min_val_idx.item()}, price: {finder.Y[finder.min_val_idx].item()}")
+# # print(f"fall: {((finder.Y[finder.max_val_idx] / finder.Y[finder.min_val_idx] - 1.0) * 100).item()} %")
+# # print(finder.extremums)
+# # 1731533108
 
 """Xnorm = torch.linspace(0, 1, 1000).view(-1, 1)
 Xpoly = polynomial_features(Xnorm, INPUT_SIZE)

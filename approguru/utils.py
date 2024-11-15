@@ -113,19 +113,19 @@ def get_feature_gradients(model: MLP, X: torch.Tensor) -> torch.Tensor:
 
     return grads_wrt_orig_features
 
-# @torch.compile
+
 def get_feature_gradients_v2(model: MLP, X_normalized: torch.Tensor) -> torch.Tensor:
-    
-    # input transformation
+    """
+    Obtains feature gradiants manually. 
+    """
+    # forward the model
     Xn = X_normalized
     Xp = polynomial_features(Xn, model.ipt_size)
-    # model output
     Yn = model(Xp)
 
     grads = []
     for i in range(1, Xn.shape[0]):
         l, r = Yn[i - 1], Yn[i]
-
         if r > l:
             grads.append(1.0)
         else:
@@ -136,6 +136,7 @@ def get_feature_gradients_v2(model: MLP, X_normalized: torch.Tensor) -> torch.Te
     else:
         grads.append(-1.0)
     
+    # r
     grads = torch.tensor(grads).view(-1, 1)
     return grads
 
@@ -184,19 +185,17 @@ def adjust_region_start(X_normalized_gradients: torch.Tensor) -> int:
 
 # @torch.compiler.disable(recursive=True)
 @torch.no_grad()
-def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: torch.Tensor, start_pointer: int) -> list[torch.Tensor]:
+def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: torch.Tensor, start_pointer: int, ohlcv_list: torch.Tensor) -> list[torch.Tensor]:
     """
     Identifies the extrema of the model's approximation, detects the steepest negative slope, 
     and returns it's ratio after applying a buffer search correction.
     """
-
     # cut unused points on the left
     grads, Y = X_normalized_gradients[start_pointer:], Y_original[start_pointer:]
     max_idx = grads.shape[0] - 1  # most index in gradients array
-
-    sign_changes1 = torch.where(grads[:-1] * grads[1:] <= 0)[0]  # the indicies after which the sign changes in gradients tensor
     
-    # more accurate way to point at extremums
+    
+    # more accurate but less efficent way to point at extremums
     sign_changes = []
     for i in range(1, grads.shape[0]):
         l, r = i - 1, i
@@ -213,14 +212,16 @@ def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: to
             
             sign_changes.append(change)
 
+
+    # mark boundary candles as extremums if they aren't already
     extremums = list(sign_changes)
-    if sign_changes[0] != 0:  # mark starting index as extremum if it's not already
+    if sign_changes[0] != 0:
         extremums = [0] + extremums
     
-    if sign_changes[-1] != torch.tensor(max_idx):  # same for last index
+    if sign_changes[-1] != torch.tensor(max_idx):
         extremums = extremums + [max_idx]
     extremums = torch.tensor(extremums)
-    # extremums = torch.cat([torch.tensor([0], device=DEVICE), sign_changes, torch.tensor([max_idx], device=DEVICE)])  # add first and last indicies
+
 
     max_negative_slope = torch.tensor(float("-inf"))
     min_val_idx, max_val_idx = None, None
@@ -230,15 +231,45 @@ def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: to
         if (Y[e] / Y[s] - 1) > 0.0:
             continue
 
-        s = torch.clamp(s - 0, min=0)  # include left buffer
-        e = torch.clamp(e + 0, max=max_idx + 1)  # include right buffer
+        s = torch.clamp(s - BUFFER_SIZE, min=0)  # include left buffer
+        e = torch.clamp(e + BUFFER_SIZE, max=max_idx + 1)  # include right buffer
 
-        min_val_i, min_val_idx_i = torch.min(Y[s:e+1], dim=0)  # min value an it's local index
-        max_val_i, max_val_idx_i = torch.max(Y[s:e+1], dim=0)  # max value an it's local index
+
+        sg = s + start_pointer
+        eg = e + start_pointer
+        
+        vals = ohlcv_list[sg:eg + 1]  # timestamp o h l c volume
+        vals = vals[:, [1, 2, 3, 4]]  # o h l c
+
+        max_vals, _ = torch.max(vals, dim=1)
+        max_val_i, max_val_idx_i = torch.max(max_vals, dim=0)
+        
+        min_vals, _ = torch.min(vals, dim=1)
+        min_val_i, min_val_idx_i = torch.min(min_vals, dim=0)
+
+        # in case positive candle has both max and min values search min value on the rest of the interval
+        if max_val_idx_i.item() == min_val_idx_i.item() and vals[max_val_idx_i][3] > vals[max_val_idx_i][0]:  # close > open 
+            # exclude this positive candle from search
+            indicies = [i for i in range(vals.shape[0]) if i != max_val_idx_i.item()]
+            # perform search
+            min_vals, _ = torch.min(vals[indicies], dim=1)
+            min_val_i, min_val_idx_i = torch.min(min_vals, dim=0)
+            # adjust index since we popped out one candle before it
+            min_val_idx_i += 1
+
+        # old
+        # min_val_i, min_val_idx_i = torch.min(Y[s:e + 1], dim=0)  # min value an it's local index
+        # max_val_i, max_val_idx_i = torch.max(Y[s:e + 1], dim=0)  # max value an it's local index
+        
+        # debug
+        """print("min:", min_val.item(), min_val_i.item(), "| idx:", min_val_idx_ii.item(), min_val_idx_i.item())
+        print("max:", max_val.item(), max_val_i.item(), "| idx:", max_val_idx_ii.item(), max_val_idx_i.item())
+        print("---")"""
 
         max_negative_slope_i = max_val_i / min_val_i - 1.0
 
         if max_negative_slope_i > max_negative_slope:
+            # print(max_val_i.item(), min_val_i.item())
             max_negative_slope = max_negative_slope_i
             max_val_idx = max_val_idx_i + s
             min_val_idx = min_val_idx_i + s
@@ -247,21 +278,21 @@ def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: to
         print(f"{RED_BOLD}(guru){RESET} No falls were found. Seems like the graph constantly grows over given interval.\n"
               " ----> find_max_negative_slope() returned [None, None, None, None].")
         return None, None, None, None
-
+    
     # adjust returned indicies to align with the original tensor
     return max_negative_slope, extremums + start_pointer, min_val_idx + start_pointer, max_val_idx + start_pointer
 
 
-def get_open_close_bound(ohlcv_list: dict, candle_index: int, func: Callable) -> None:
+def get_open_close_bound(ohlcv_list: torch.Tensor, candle_index: int, func: Callable) -> None:
     """
     Get the maximum or minimum of the open and close values from a given candle.
     """
     assert func in (max, min), f"{RED_BOLD}(approguru){RESET} 'func' argument must be either 'max' or 'min' function."
 
     data = ohlcv_list[candle_index].view(-1)
-    oc = [data[1], data[2]] # open and close  ATTENTION: USING HIGH AS TARGETS!!!
-    
-    return func(oc)
+    data = data[1:-2] # timestamp [o h l] c volume
+
+    return func(data)
 
 
 # @torch.compiler.disable(recursive=True)
