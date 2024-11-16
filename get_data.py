@@ -9,11 +9,15 @@ class Parameters():
     timeframe: str = "hour"
     aggregate: int = 1
     limit: int = 150
-    before_timestamp: str = "1731598500" 
+    before_timestamp: str = "1731707759" 
 
 
-def get_ohlcvs_coingecko(p: Parameters, title: str) -> None:
-    url = f"https://api.geckoterminal.com/api/v2/networks/eth/pools/{p.pool_address}/ohlcv/{p.timeframe}?aggregate={p.aggregate}&before_timestamp={p.before_timestamp}&limit={p.limit}&currency=usd&token=base"
+def get_ohlcvs_coingecko(p: Parameters, title: str, timestamp: bool = True) -> None:
+    if timestamp is True:
+        url = f"https://api.geckoterminal.com/api/v2/networks/eth/pools/{p.pool_address}/ohlcv/{p.timeframe}?aggregate={p.aggregate}&before_timestamp={p.before_timestamp}&limit={p.limit}&currency=usd&token=base"
+    elif timestamp is False:
+        url = f"https://api.geckoterminal.com/api/v2/networks/eth/pools/{p.pool_address}/ohlcv/{p.timeframe}?aggregate={p.aggregate}&limit={p.limit}&currency=usd&token=base"
+    
     headers = {"accept": "application/json"}
     try:
         response = requests.get(url, headers=headers)
@@ -55,6 +59,6 @@ if __name__ == "__main__":
         get_ohlcvs_coingecko(parameters, title=str(idx))"""
     
 
-    pool = "0x1f4ef1f8441caac34f58fb0cba813dd2b09fec63"
+    pool = "0xf22fdd2be7c6da9788e4941a6ffc78ca99d7b15c"
     parameters = Parameters(pool_address=pool)
     get_ohlcvs_coingecko(parameters, title=str("test"))

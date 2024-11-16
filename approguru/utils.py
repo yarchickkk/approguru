@@ -220,8 +220,10 @@ def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: to
     
     if sign_changes[-1] != torch.tensor(max_idx):
         extremums = extremums + [max_idx]
+        
     extremums = torch.tensor(extremums)
-
+    
+    extremums = torch.unique(extremums)  # FAST_FIX: delete duplicates
 
     max_negative_slope = torch.tensor(float("-inf"))
     min_val_idx, max_val_idx = None, None

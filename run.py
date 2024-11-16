@@ -34,7 +34,7 @@ finder = guru.MaxFallFinder()
 finder(data)
 print(f"Max fall: {finder.max_fall.item()}, length: {(finder.min_val_idx - finder.max_val_idx).item()}, ({finder.max_val_idx.item()}, {finder.min_val_idx.item()})")
 print(f"Loss: {finder.achieved_loss.item():.10f} | Iters: {finder.steps_made.item()}")
-finder.visualize_fall()
+finder.visualize_fall()  # 74 - bug
 
     # b, _ = torch.min(finder.data[finder.min_val_idx][1, 2, 3, 4])
     # print(f"Values:\nMin: {b.item()}]nMax: {a.item()}")
