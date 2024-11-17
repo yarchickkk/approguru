@@ -6,10 +6,10 @@ from dataclasses import dataclass
 @dataclass
 class Parameters():
     pool_address: str = ""
-    timeframe: str = "hour"
-    aggregate: int = 1
-    limit: int = 150
-    before_timestamp: str = "1731707759" 
+    timeframe: str = "minute"
+    aggregate: int = 15
+    limit: int = 400
+    before_timestamp: str = "1731598500" 
 
 
 def get_ohlcvs_coingecko(p: Parameters, title: str, timestamp: bool = True) -> None:
@@ -54,11 +54,11 @@ pools = [
 if __name__ == "__main__":
 
     # Get OHLCV data
-    """for idx, pool in enumerate(pools):
+    for idx, pool in enumerate(pools):
         parameters = Parameters(pool_address=pool)
-        get_ohlcvs_coingecko(parameters, title=str(idx))"""
+        get_ohlcvs_coingecko(parameters, title=str(idx))
     
 
-    pool = "0xf22fdd2be7c6da9788e4941a6ffc78ca99d7b15c"
-    parameters = Parameters(pool_address=pool)
-    get_ohlcvs_coingecko(parameters, title=str("test"))
+    # pool = "0xf22fdd2be7c6da9788e4941a6ffc78ca99d7b15c"
+    # parameters = Parameters(pool_address=pool)
+    # get_ohlcvs_coingecko(parameters, title=str("test"))

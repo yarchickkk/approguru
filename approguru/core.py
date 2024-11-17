@@ -55,6 +55,8 @@ class MaxFallFinder(nn.Module):
 
         self.Xnorm_gradients = get_feature_gradients_v2(self.mlp, self.Xnorm)
 
+        self.Yapprox = self.mlp(self.Xpoly)
+
         # push the search region left border if necessary
         self.start_ptr = adjust_region_start(self.Xnorm_gradients)
 
@@ -62,7 +64,8 @@ class MaxFallFinder(nn.Module):
             self.Xnorm_gradients,
             Y_original=self.Y,
             start_pointer=self.start_ptr,
-            ohlcv_list=self.data
+            ohlcv_list=self.data,
+            Y_approximated=self.Yapprox
         )
         
         # take most and least of open and close values at the borders

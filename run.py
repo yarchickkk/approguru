@@ -4,6 +4,21 @@ from get_data import pools
 import torch
 
 
+def log_results(forwarded_finder: guru.MaxFallFinder, title: str = "", visualize_graph: bool = False) -> None:
+    """
+    Just prints any inforamtion about processed graph in a console.
+    """
+    finder = forwarded_finder
+
+    print(title)
+    print(f"Max fall: {finder.max_fall.item()}, length: {(finder.min_val_idx - finder.max_val_idx).item()}, ({finder.max_val_idx.item()}, {finder.min_val_idx.item()})")
+    print(f"Loss: {finder.achieved_loss.item():.10f} | Iters: {finder.steps_made.item()}")
+    print("-"*30)
+
+    if visualize_graph is True:
+        finder.visualize_fall()
+
+
 # Load data in a list
 ohlcv_data = []
 for idx, pool in enumerate(pools):
@@ -14,27 +29,27 @@ for idx, pool in enumerate(pools):
 
 # Process data one-by-one
 for idx, data in enumerate(ohlcv_data):
-    break
-    if idx != 10:
+
+    if idx != 0:
         continue
 
     finder = guru.MaxFallFinder()
     finder(data)
-    # logging
-    print(f"Graph {idx}:")
-    print(f"Max fall: {finder.max_fall.item()}, length: {(finder.min_val_idx - finder.max_val_idx).item()}, ({finder.max_val_idx.item()}, {finder.min_val_idx.item()})")
-    print(f"Loss: {finder.achieved_loss.item():.10f} | Iters: {finder.steps_made.item()}")
-    print("-"*30)
-    finder.visualize_fall()
+
+    log_results(
+        forwarded_finder=finder,
+        title=f"Graph {idx}:",
+        visualize_graph=True
+    )
 
 
-with open("data/test_data.json", "r") as file:
-    data = json.load(file)
-finder = guru.MaxFallFinder()
-finder(data)
-print(f"Max fall: {finder.max_fall.item()}, length: {(finder.min_val_idx - finder.max_val_idx).item()}, ({finder.max_val_idx.item()}, {finder.min_val_idx.item()})")
-print(f"Loss: {finder.achieved_loss.item():.10f} | Iters: {finder.steps_made.item()}")
-finder.visualize_fall()  # 74 - bug
+# with open("data/test_data.json", "r") as file:
+#     data = json.load(file)
+# finder = guru.MaxFallFinder()
+# finder(data)
+# print(f"Max fall: {finder.max_fall.item()}, length: {(finder.min_val_idx - finder.max_val_idx).item()}, ({finder.max_val_idx.item()}, {finder.min_val_idx.item()})")
+# print(f"Loss: {finder.achieved_loss.item():.10f} | Iters: {finder.steps_made.item()}")
+# finder.visualize_fall()  # 74 - bug
 
     # b, _ = torch.min(finder.data[finder.min_val_idx][1, 2, 3, 4])
     # print(f"Values:\nMin: {b.item()}]nMax: {a.item()}")

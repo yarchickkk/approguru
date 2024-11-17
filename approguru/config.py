@@ -27,16 +27,16 @@ def select_torch_device() -> torch.device:
 
 DEVICE = select_torch_device()
 NUM_THREADS = torch.get_num_threads() if DEVICE == torch.device("cpu") else None
-INPUT_SIZE = 3
-HIDDEN_NEURONS = [x*4 for x in [8, 16, 32, 32, 16, 8]]
+INPUT_SIZE = 2
+HIDDEN_NEURONS = [64, 64, 64, 64, 64, 64]  #[2, 4, 8, 16, 32, 64, 32, 16, 8, 4, 2]  #[x*4 for x in [8, 16, 32, 32, 16, 8]]
 ACTIVATION_FUNCTION = nn.LeakyReLU
-TARGET_LOSS = 0.0005
-MAX_ITERATIONS = 20000
-MIN_ITERATIONS = 15000
+TARGET_LOSS = 0.0008
+MAX_ITERATIONS = 40000
+MIN_ITERATIONS = 20000
 BUFFER_SIZE = 0
 RED_BOLD = "\033[1;31m"
 RESET = "\033[0m"
-FETCHED_DATA_POINTS = 150  # candels requested from geckoterminal API
-INITIAL_SEARCH_REGION = 100  # candels considered for search by deafault (can be extended during execution)
+FETCHED_DATA_POINTS = 400  # candles requested from geckoterminal API
+INITIAL_SEARCH_REGION = 350  # candles considered for search by deafault (can be extended during execution)
 SEED = 123456
-TARGETS = "high"
+TARGETS = "close"
