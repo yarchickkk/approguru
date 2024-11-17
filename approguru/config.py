@@ -39,4 +39,7 @@ RESET = "\033[0m"
 FETCHED_DATA_POINTS = 400  # candles requested from geckoterminal API
 INITIAL_SEARCH_REGION = 350  # candles considered for search by deafault (can be extended during execution)
 SEED = 123456
-TARGETS = "close"
+TARGETS_FIT = "close"
+TARGETS_SEARCH = ["open", "close"]
+GROWTH_PERCENT = 5.0
+

@@ -12,13 +12,14 @@ from .utils import (
     get_feature_gradients,
     get_feature_gradients_v2,
     adjust_region_start,
+    get_sign_changes,
+    remove_positive_slopes,
     find_max_negative_slope,
-    get_open_close_bound,
     visualize_model
 )
 from .config import (
     INPUT_SIZE, HIDDEN_NEURONS, ACTIVATION_FUNCTION, 
-    DEVICE, RED_BOLD, RESET, SEED, TARGETS
+    DEVICE, RED_BOLD, RESET, SEED, TARGETS_FIT, GROWTH_PERCENT, TARGETS_SEARCH
 )
 
 
@@ -29,16 +30,19 @@ class MaxFallFinder(nn.Module):
         self.seed = seed
 
     def forward(self, ohlcv_data: dict) -> None:
-        if validate_ohlcv_structure(ohlcv_data) is False:  # data validation
+        # data validation
+        if validate_ohlcv_structure(ohlcv_data) is False:  
             return None
        
-        self.X, self.Y, self.Xnorm, self.Ynorm, self.data = preprocess_data(ohlcv_data, targets=TARGETS)  # data preprocessing
+        self.X, self.Y, self.Xnorm, self.Ynorm, self.data = preprocess_data(ohlcv_data, targets=TARGETS_FIT)  # data preprocessing
         self.Xpoly = polynomial_features(self.Xnorm, INPUT_SIZE)
 
+        # reset random generation for reproducibility
         random.seed(SEED)
-        torch.manual_seed(SEED)  # model initialization
+        torch.manual_seed(SEED)  
         np.random.seed(SEED)
-
+        
+        # model initialization
         self.mlp = MLP(
             ipt_size=INPUT_SIZE,
             hidden_ns=HIDDEN_NEURONS,
@@ -47,7 +51,8 @@ class MaxFallFinder(nn.Module):
         # torch.compile(self.mlp)
         self.mlp.to(DEVICE)
 
-        self.steps_made, self.achieved_loss = train_mlp(  # model training
+        # model training
+        self.steps_made, self.achieved_loss = train_mlp(  
             model=self.mlp,
             X_polynomial=self.Xpoly,
             Y_normalized=self.Ynorm
@@ -55,17 +60,29 @@ class MaxFallFinder(nn.Module):
 
         self.Xnorm_gradients = get_feature_gradients_v2(self.mlp, self.Xnorm)
 
-        self.Yapprox = self.mlp(self.Xpoly)
-
         # push the search region left border if necessary
         self.start_ptr = adjust_region_start(self.Xnorm_gradients)
+
+        self.sign_changes = get_sign_changes(
+            X_normalized_gradients=self.Xnorm_gradients,
+            Y_original=self.Y,
+            start_pointer=self.start_ptr
+        )
+
+        self.sign_changes = remove_positive_slopes(
+            sign_changes=self.sign_changes,
+            Y_original=self.Y,
+            start_pointer=self.start_ptr,
+            growth_percent=GROWTH_PERCENT
+        )
 
         self.max_fall, self.extremums, self.min_val_idx, self.max_val_idx = find_max_negative_slope(
             self.Xnorm_gradients,
             Y_original=self.Y,
             start_pointer=self.start_ptr,
             ohlcv_list=self.data,
-            Y_approximated=self.Yapprox
+            sign_changes=self.sign_changes,
+            targets=TARGETS_SEARCH
         )
         
         # take most and least of open and close values at the borders
