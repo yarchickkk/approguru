@@ -30,8 +30,8 @@ for idx, pool in enumerate(pools):
 # Process data one-by-one
 for idx, data in enumerate(ohlcv_data):
 
-    if idx != 0:
-        continue
+    # if idx != 3:
+    #     continue
 
     finder = guru.MaxFallFinder()
     finder(data)

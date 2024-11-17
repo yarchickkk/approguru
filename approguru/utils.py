@@ -228,7 +228,7 @@ def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: to
         flag = ((Y[e] / Y[s] - 1) > 0.0).item()
         fall_ratio = (max_val / min_val - 1) * 100.0
 
-        if (flag is True) and (0.0 < fall_ratio < 10.0):  # 0 - 1.5 % growth excluded
+        if (flag is True) and (0.0 < fall_ratio < 5.0):  # 0 - 5 % growth excluded
             removed_indicies.extend([l, r])
             l += 2
             r += 2
@@ -268,7 +268,8 @@ def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: to
 
         # get interval candles data and filter it
         vals = ohlcv_list[sg:eg + 1]  # [timestamp, open, high, low, close, volume]
-        vals = vals[:, [1, 2, 3, 4]]  # [open, high, low, close]
+        """vals = vals[:, [1, 2, 3, 4]]  # [open, high, low, close]"""
+        vals = vals[:, [1, 4]]  # [open, close]
 
         # maximum value in interval
         max_vals, _ = torch.max(vals, dim=1)
@@ -278,7 +279,7 @@ def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: to
         min_val_i, min_val_idx_i = torch.min(min_vals, dim=0)
 
         # in case positive candle has both max and min values search min value on the rest of the interval
-        if max_val_idx_i.item() == min_val_idx_i.item() and vals[max_val_idx_i][3] > vals[max_val_idx_i][0]:  # close > open 
+        if max_val_idx_i.item() == min_val_idx_i.item() and vals[max_val_idx_i][1] > vals[max_val_idx_i][0]:  # close > open (3 before!)
             # exclude this positive candle from search
             indicies = [i for i in range(vals.shape[0]) if i != max_val_idx_i.item()]
             # perform search
@@ -292,6 +293,7 @@ def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: to
         # default most value search
         if max_negative_slope_i > max_negative_slope:
             max_negative_slope = max_negative_slope_i
+
             max_val_idx = max_val_idx_i + s
             min_val_idx = min_val_idx_i + s
 
@@ -301,6 +303,11 @@ def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: to
               " ----> find_max_negative_slope() returned [None, None, None, None].")
         return None, None, None, None
     
+    # slope adjust by taking high / low values in count
+    mv, _ = torch.max(ohlcv_list[max_val_idx + start_pointer][1:-1], dim=0)
+    lv, _ = torch.min(ohlcv_list[min_val_idx + start_pointer][1:-1], dim=0)
+    max_negative_slope = mv / lv - 1.0
+
     # adjust returned indicies to align with the original tensor
     return max_negative_slope, extremums + start_pointer, min_val_idx + start_pointer, max_val_idx + start_pointer
 
