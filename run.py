@@ -28,25 +28,31 @@ for idx, pool in enumerate(pools):
 
 
 # Process data one-by-one
-for idx, data in enumerate(ohlcv_data):
+# for idx, data in enumerate(ohlcv_data):
 
-    if idx != 0:
-        continue
+#     if idx != 24:
+#         continue
 
-    finder = guru.MaxFallFinder()
-    finder(data)
+#     finder = guru.MaxFallFinder()
+#     finder(data)
 
-    log_results(
-        forwarded_finder=finder,
-        title=f"Graph {idx}:",
-        visualize_graph=True
-    )
+#     log_results(
+#         forwarded_finder=finder,
+#         title=f"Graph {idx}:",
+#         visualize_graph=True
+#     )
 
 
-# with open("data/test_data.json", "r") as file:
-#     data = json.load(file)
-# finder = guru.MaxFallFinder()
-# finder(data)
+with open("data/test_data.json", "r") as file:
+    data = json.load(file)
+finder = guru.MaxFallFinder()
+finder(data)
+log_results(
+    forwarded_finder=finder,
+    title=f"Graph Pepe:",
+    visualize_graph=True
+)
+print(f"average_growth: {finder.average_growth.item()}")
 # print(f"Max fall: {finder.max_fall.item()}, length: {(finder.min_val_idx - finder.max_val_idx).item()}, ({finder.max_val_idx.item()}, {finder.min_val_idx.item()})")
 # print(f"Loss: {finder.achieved_loss.item():.10f} | Iters: {finder.steps_made.item()}")
 # finder.visualize_fall()  # 74 - bug

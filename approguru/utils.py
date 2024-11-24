@@ -248,7 +248,7 @@ def remove_positive_slopes(sign_changes: list, Y_original: torch.Tensor, start_p
 
 # @torch.compiler.disable(recursive=True)
 @torch.no_grad()
-def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: torch.Tensor, start_pointer: int, ohlcv_list: torch.Tensor, sign_changes: list, targets: Iterable) -> list[torch.Tensor]:
+def find_max_negative_slope(Y_original: torch.Tensor, start_pointer: int, ohlcv_list: torch.Tensor, sign_changes: list, targets: Iterable) -> list[torch.Tensor]:
     """
     Identifies the extrema of the model's approximation, detects the steepest negative slope, 
     and returns it's ratio after applying a buffer search correction.
@@ -256,54 +256,6 @@ def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: to
     # cut unused points on the left
     Y = Y_original[start_pointer:]
     max_idx = Y.shape[0] - 1  # most index in gradients array
-    
-
-    """Turn gradients to list of indicies at which gradient sign changes
-    # more accurate but less efficent way to point at extremums
-    sign_changes = []
-    for i in range(1, grads.shape[0]):
-        l, r = i - 1, i
-        l_grad, r_grad = grads[l], grads[r]
-        l_val, r_val = Y[l], Y[r]
-        
-        if l_grad * r_grad <= 0:  # detect a sign change
-            # minimum
-            if l_grad <= 0 and r_grad > 0: 
-                change = l if l_val <= r_val else r
-            # maximum
-            elif l_grad > 0 and r_grad <= 0: 
-                change = l if l_val > r_val else r
-            sign_changes.append(change)
-
-    # delete duplicated sign changes
-    sign_changes = list(dict.fromkeys(sign_changes))"""
-
-
-    """Ignore growth regions which are less than n %
-    l, r = 0, 1
-    length = len(sign_changes) - 1
-    removed_indicies = []
-
-    while (l < length - 1) and r < length:
-        s, e = sign_changes[l], sign_changes[r]
-
-        interval = Y[s:e +1]
-        max_val, _ = torch.max(interval, dim=0)
-        min_val, _ = torch.min(interval, dim=0)
-
-        flag = ((Y[e] / Y[s] - 1) > 0.0).item()
-        fall_ratio = (max_val / min_val - 1) * 100.0
-
-        if (flag is True) and (0.0 < fall_ratio < 5.0):  # 0 - 5 % growth excluded
-            removed_indicies.extend([l, r])
-            l += 2
-            r += 2
-        else:
-            l += 1
-            r += 1
-
-    for index in sorted(removed_indicies, reverse=True):
-        sign_changes.pop(index)"""
     
     stoi = {"timestamp": 0,  # string to index mappings
             "open": 1,
@@ -342,7 +294,7 @@ def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: to
 
         # get interval bars data
         interval = ohlcv_list[sg:eg + 1]  # [timestamp, open, high, low, close, volume]
-        interval = interval[:, search_indices]  # [open, close]
+        interval = interval[:, search_indices]  # e.g [open, close] (filtered)
 
         # maximum value in interval
         max_vals, _ = torch.max(interval, dim=1)
@@ -363,13 +315,52 @@ def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: to
 
         # measure the fall
         max_negative_slope_i = max_val_i / min_val_i - 1.0
-
+        
         # default most value search
         if max_negative_slope_i > max_negative_slope:
             max_negative_slope = max_negative_slope_i
             max_val_idx = max_val_idx_i + s
             min_val_idx = min_val_idx_i + s
 
+    # measure growth intervals
+    positive_slopes = []
+    for s, e in zip(extremums[:-1], extremums[1:]):
+        # exclude intervals of fall
+        if (Y[e] / Y[s] - 1) < 0.0:
+            continue
+        
+        # get global indicies
+        sg = s + start_pointer
+        eg = e + start_pointer
+
+        # get interval bars data
+        interval = ohlcv_list[sg:eg + 1]  # [timestamp, open, high, low, close, volume]
+        interval = interval[:, search_indices]  # e.g [open, close] (filtered)
+
+        # maximum value in interval
+        max_vals, _ = torch.max(interval, dim=1)
+        max_val_i, max_val_idx_i = torch.max(max_vals, dim=0)
+        # minimum value in interval
+        min_vals, _ = torch.min(interval, dim=1)
+        min_val_i, min_val_idx_i = torch.min(min_vals, dim=0)
+
+        # in case positive candle has both max and min values search min value on the rest of the interval
+        if max_val_idx_i.item() == min_val_idx_i.item() and ohlcv_list[sg + max_val_idx_i][stoi["close"]] > ohlcv_list[sg + max_val_idx_i][stoi["open"]]:  # close > open
+            # exclude this positive candle from search
+            indicies = [i for i in range(interval.shape[0]) if i != max_val_idx_i.item()]
+            # perform minimum search again
+            max_vals, _ = torch.max(interval[indicies], dim=1)
+            max_val_i, max_val_idx_i = torch.max(max_vals, dim=0)
+            # adjust index since we popped out one candle before it
+            max_val_idx_i += 1
+
+        # measure the fall
+        max_positive_slope = max_val_i / min_val_i - 1.0
+        positive_slopes.append(max_positive_slope)
+    
+    # average growth
+    average_growth = sum(positive_slopes) / len(positive_slopes)
+        
     # handle the case of constanly growing graph
     if max_negative_slope == torch.tensor(float("inf")):
         print(f"{RED_BOLD}(guru){RESET} No falls were found. Seems like the graph constantly grows over given interval.\n"
@@ -382,7 +373,7 @@ def find_max_negative_slope(X_normalized_gradients: torch.Tensor, Y_original: to
     max_negative_slope = most / least - 1.0
 
     # adjust returned indicies to align with the original tensor
-    return max_negative_slope, extremums + start_pointer, min_val_idx + start_pointer, max_val_idx + start_pointer
+    return max_negative_slope, extremums + start_pointer, min_val_idx + start_pointer, max_val_idx + start_pointer, average_growth
 
 
 def get_open_close_bound(ohlcv_list: torch.Tensor, candle_index: int, func: Callable) -> None:

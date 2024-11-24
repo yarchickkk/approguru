@@ -76,8 +76,7 @@ class MaxFallFinder(nn.Module):
             growth_percent=GROWTH_PERCENT
         )
 
-        self.max_fall, self.extremums, self.min_val_idx, self.max_val_idx = find_max_negative_slope(
-            self.Xnorm_gradients,
+        self.max_fall, self.extremums, self.min_val_idx, self.max_val_idx, self.average_growth = find_max_negative_slope(
             Y_original=self.Y,
             start_pointer=self.start_ptr,
             ohlcv_list=self.data,
